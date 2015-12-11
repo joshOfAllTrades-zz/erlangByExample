@@ -10,17 +10,22 @@
 -author("jt3518").
 
 %% API
--export([start/1, send/2, quit/1]).
+-export([start/1, send/2, quit/0]).
 
 start(NumNodes) ->
-  spawn_nodes(NumNodes).
+  First = spawn_nodes(NumNodes),
+  io:fwrite("~w is first~n", [First]),
+  register(first, First).
 
-send(Front, NumMsgs) when NumMsgs > 0 ->
-  Front ! {msg, self()},
-  send(Front, NumMsgs - 1).
+send(NumMsgs, Body) when NumMsgs > 0 ->
+  io:fwrite("Sending ~w ~w times.~n", [Body, NumMsgs]),
+  first ! {msg, Body},
+  send(NumMsgs - 1, Body);
+send(0, _Body) ->
+  ok.
 
-quit(Front) ->
-  Front ! quit.
+quit() ->
+  first ! quit.
 
 spawn_nodes(1) ->
   spawn_node(first);
@@ -28,6 +33,7 @@ spawn_nodes(NumNodes) when NumNodes > 1 ->
   spawn_node(spawn_nodes(NumNodes - 1)).
 
 spawn_node(Dest) ->
+  io:fwrite("Spawning with target ~w~n", [Dest]),
   spawn(fun() -> init(Dest) end).
 
 init(Dest) ->
@@ -35,8 +41,27 @@ init(Dest) ->
   loop(Dest).
 
 loop(Dest) ->
+  Self = self(),
   receive
+    {msg, Body} ->
+      io:fwrite("Starting message loop."),
+      Dest ! {msg, self(), Body};
+    {msg, Self, Body} ->
+      io:fwrite("Reached end of message loop~n"),
+      io:fwrite("~w~n", [Body]);
+    {msg, First, Body} ->
+      io:fwrite("Forwarding message to ~w~n", [Dest]),
+      Dest ! {msg, First, Body};
     quit ->
-      io:fwrite("Sending quit to ~w~n", [Dest]),
-      Dest ! quit
+      io:fwrite("Starting quit loop by sending from ~w to ~w~n",
+          [Self, Dest]),
+      Dest ! {quit, self()},
+      loop(Dest);
+    {quit, Self} ->
+      io:fwrite("Reached end of quit loop~n"),
+      io:fwrite("~w exiting~n", [Self]);
+    {quit, First} ->
+      io:fwrite("Forwarding quit to ~w~n", [Dest]),
+      Dest ! {quit, First},
+      io:fwrite("~w exiting~n", [Self])
   end.
